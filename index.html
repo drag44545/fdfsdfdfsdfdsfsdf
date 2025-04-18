@@ -1,0 +1,865 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DTBS Monaco</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.1/min/vs/loader.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: Poppins Light;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+        }
+
+        .main-container {
+            display: flex;
+            background: #0A0A0A;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .tab-bar {
+            background-color: #0c0c0c;
+            border-bottom: 1px solid #333;
+            flex-direction: row;
+            align-items: center;
+            display: inline-flex;
+            padding: 0 4px;
+        }
+
+        .tab-list {
+            overflow-x: auto;
+            padding: 4px 0;
+            align-items: center;
+            display: flex;
+            flex-grow: 0;
+        }
+
+        .tab-item {
+            padding: 6px 12px;
+            cursor: pointer;
+            border: none;
+            margin: 0 2px;
+            margin-right: 2px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            font-size: 13px;
+            background-color: #0E0E0E;
+            color: #FFFFFF;
+            border-radius: 8px;
+            border-right: 1px solid #1F1F1F;
+            outline: none;
+            min-width: 70px;
+            max-width: 120px;
+            user-select: none;
+            height: 24px;
+            transition: background-color 0.2s, color 0.2s, transform 0.2s;
+        }
+
+            .tab-item:not(.editing) .tab-title {
+                border: none;
+                outline: none;
+            }
+
+            .tab-item.editing .tab-title {
+                border: none;
+                outline: none;
+            }
+
+            .tab-item.active {
+                background-color: #111111;
+                color: #ffffff;
+            }
+
+            .tab-item:hover {
+                background-color: #151515;
+                transform: translateY(-2px);
+            }
+
+        .add-tab-button {
+            width: 28px;
+            height: 28px;
+            padding: 0;
+            background: transparent;
+            color: #d4d4d4;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 16px;
+            font-family: Poppins Light;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-left: 4px;
+            background-color: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            font-weight: lighter;
+            transition: background-color 0.2s, color 0.2s, transform 0.2s;
+        }
+
+            .add-tab-button:hover {
+                background-color: #4b1e63;
+            }
+
+        .close-tab {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 3px;
+            border: none;
+            background: transparent;
+            color: #888;
+            cursor: pointer;
+            font-size: 16px;
+            margin-left: 8px;
+            padding: 0;
+            line-height: 1;
+            transition: background-color 0.2s, color 0.2s, transform 0.2s;
+        }
+
+        .tab-close:hover {
+            opacity: 1;
+            background-color: rgba(255,255,255,0.1);
+        }
+
+        .editors-container {
+            flex-grow: 1;
+            position: relative;
+        }
+
+        .editor-container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            visibility: hidden;
+        }
+
+            .editor-container.active {
+                visibility: visible;
+            }
+
+        .tab-title {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex-grow: 1;
+        }
+
+        .tab-icon {
+            width: 16px;
+            height: 16px;
+            margin-right: 6px;
+            opacity: 0.7;
+            font-size: 14px;
+        }
+
+        @keyframes tabAdd {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .tab-item.adding {
+            animation: tabAdd 0.3s ease-in-out;
+        }
+
+        @keyframes tabRemove {
+            from {
+                opacity: 1;
+                transform: translateY(0);
+            }
+
+            to {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+        }
+
+        .tab-item.removing {
+            animation: tabRemove 0.3s ease-in-out forwards;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <div class="tab-bar">
+            <div class="tab-list" id="tab-list"></div>
+            <button class="add-tab-button" onclick="addTab()">+</button>
+        </div>
+        <div class="editors-container" id="editors"></div>
+    </div>
+
+    <script>
+        const editors = {};
+        let editorsInitialized = false;
+        let activeTabId = null;
+        var GetText;
+        var SetText;
+        var SetTheme;
+        var SetScroll;
+        var ShowError;
+        var Refresh;
+
+        var SwitchMinimap;
+        var SwitchReadonly;
+        var SwitchRenderWhitespace;
+        var SwitchLinks;
+        var SwitchLineHeight;
+        var SwitchFontSize;
+        var SwitchFolding;
+        var SwitchAutoIndent;
+        var SwitchFontFamily;
+        var SwitchFontLigatures;
+        var AddIntellisense;
+
+        var editor;
+        var Proposals = [];
+
+
+        require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.1/min/vs' } });
+
+        require(['vs/editor/editor.main'], function () {
+            editorsInitialized = true;
+
+            if (!loadTabs()) {
+                addTab();
+            }   
+
+            const luaKeywords = [
+                "and", "break", "do", "else", "elseif", "end", "false", "for",
+                "function", "if", "in", "local", "nil", "not", "or", "repeat",
+                "return", "then", "true", "until", "while"
+            ];
+
+            const luaFunctions = [
+                "assert", "collectgarbage", "dofile", "error", "getfenv", "getmetatable",
+                "io.close", "io.flush", "io.input", "io.lines", "io.open", "io.output",
+                "ipairs", "load", "loadfile", "loadstring", "math.abs", "math.acos",
+                "math.asin", "math.atan", "syringeeiscute", "math.atan2", "math.ceil", "math.cos",
+                "math.deg", "math.exp", "math.floor", "math.fmod", "math.frexp",
+                "math.huge", "math.ldexp", "math.log", "math.max", "math.min",
+                "math.modf", "math.pi", "math.pow", "math.rad", "math.random",
+                "math.randomseed", "math.sin", "math.sqrt", "math.tan", "next",
+                "pairs", "pcall", "print", "printidentity()", "rawequal", "rawget", "rawset", "require",
+                "select", "setfenv", "setmetatable", "string.byte", "string.char",
+                "string.dump", "string.find", "string.format", "string.gmatch",
+                "string.gsub", "string.len", "string.lower", "string.match",
+                "string.rep", "string.reverse", "string.sub", "string.upper",
+                "table.concat", "table.insert", "table.maxn", "table.remove", "tonumber",
+                "tostring", "type", "unpack", "xpcall", "coroutine.create",
+                "coroutine.resume", "coroutine.running", "coroutine.status",
+                "coroutine.wrap"
+            ];
+
+            monaco.languages.registerCompletionItemProvider('lua', {
+                provideCompletionItems: function (model, position) {
+                    const wordUntilPosition = model.getWordUntilPosition(position);
+                    const range = {
+                        startLineNumber: position.lineNumber,
+                        startColumn: wordUntilPosition.startColumn,
+                        endLineNumber: position.lineNumber,
+                        endColumn: wordUntilPosition.endColumn
+                    };
+
+                    const suggestions = [];
+
+                    luaKeywords.forEach(keyword => {
+                        if (keyword.startsWith(wordUntilPosition.word)) {
+                            suggestions.push({
+                                label: keyword,
+                                kind: monaco.languages.CompletionItemKind.Keyword,
+                                insertText: keyword,
+                                range: range
+                            });
+                        }
+                    });
+
+                    luaFunctions.forEach(func => {
+                        if (func.startsWith(wordUntilPosition.word)) {
+                            suggestions.push({
+                                label: func,
+                                kind: monaco.languages.CompletionItemKind.Function,
+                                insertText: func,
+                                range: range
+                            });
+                        }
+                    });
+
+                    return {
+                        suggestions: suggestions
+                    };
+                }
+            });
+        });
+
+        window.addEventListener('resize', () => {
+            if (activeTabId !== null && editors[activeTabId]) {
+                editors[activeTabId].layout();
+            }
+        });
+
+        function createEditorContainer(id) {
+            const container = document.createElement('div');
+            container.id = `editor${id}`;
+            container.className = 'editor-container';
+            document.getElementById('editors').appendChild(container);
+            return container;
+        }
+
+        function createTab(id) {
+            const tab = document.createElement('div');
+            tab.className = 'tab-item adding';
+            tab.dataset.tabId = id;
+            tab.onclick = () => switchTab(id);
+
+            const icon = document.createElement('span');
+            icon.className = 'tab-icon';
+            icon.style.fontFamily = 'Consolas, Monaco, monospace';
+            icon.innerHTML = '⁝';
+
+            const tabText = document.createElement('span');
+            tabText.className = 'tab-title';
+            tabText.textContent = `Tab ${id}`;
+            tabText.contentEditable = false;
+            tabText.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (!tabText.isContentEditable) {
+                    tabText.contentEditable = true;
+                    tabText.focus();
+                }
+            });
+            tabText.addEventListener('blur', () => {
+                tabText.contentEditable = false;
+            });
+            tabText.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    tabText.blur();
+                }
+            });
+
+            const closeButton = document.createElement('button');
+            closeButton.className = 'close-tab';
+            closeButton.innerHTML = '×';
+            closeButton.onclick = (e) => {
+                e.stopPropagation();
+                removeTab(id);
+            };
+
+            tab.appendChild(icon);
+            tab.appendChild(tabText);
+            tab.appendChild(closeButton);
+
+            document.getElementById('tab-list').appendChild(tab);
+            return tab;
+        }
+
+
+        function saveTabs() {
+            const tabsData = [];
+            Object.keys(editors).forEach(id => {
+                tabsData.push({
+                    id: id,
+                    content: editors[id].getValue(),
+                    title: document.querySelector(`[data-tab-id="${id}"] .tab-title`).textContent
+                });
+            });
+            localStorage.setItem('savedTabs', JSON.stringify(tabsData));
+        }
+
+        function loadTabs() {
+            const savedTabs = localStorage.getItem('savedTabs');
+            if (savedTabs) {
+                try {
+                    const tabsData = JSON.parse(savedTabs);
+                    tabsData.forEach(tabData => {
+                        addTab(tabData.id, tabData.content, tabData.title);
+                    });
+                    return true;
+                } catch (e) {
+                    console.error('Failed to load tabs:', e);
+                }
+            }
+            return false;
+        }
+
+        function addTab() {
+            if (!editorsInitialized || Object.keys(editors).length >= 6) return;
+
+            let nextId = 1;
+            const existingIds = Object.keys(editors).map(Number);
+            while (existingIds.includes(nextId)) {
+                nextId++;
+            }
+
+            const id = nextId;
+            const container = createEditorContainer(id);
+            const tab = createTab(id);
+
+            const addButton = document.querySelector('.add-tab-button');
+            if (Object.keys(editors).length >= 6) {
+                addButton.classList.add('disabled');
+            }
+
+
+            monaco.editor.defineTheme('CustomDark', {
+                base: 'vs-dark',
+                inherit: true,
+                rules: [
+                    [
+                        [
+                            [
+                                { "token": "", "foreground": "#000000" },
+                                { "token": "variable.language.self", "foreground": "#800080", "fontStyle": "bold" },
+                                { "token": "variable.parameter.variadic", "foreground": "#6A5ACD", "fontStyle": "italic" },
+                                { "token": "variable.parameter.function", "foreground": "#0000FF" },
+                                { "token": "variable.other.constant", "foreground": "#483D8B", "fontStyle": "bold" },
+                                { "token": "variable.property", "foreground": "#4B0082", "fontStyle": "italic" },
+                                { "token": "variable.object.property", "foreground": "#4169E1" },
+                                { "token": "keyword", "foreground": "#9370DB", "fontStyle": "bold italic" },
+                                { "token": "keyword.local", "foreground": "#8A2BE2", "fontStyle": "bold italic" },
+                                { "token": "keyword.operator", "foreground": "#0000CD" },
+                                { "token": "keyword.operator.type.annotation", "foreground": "#483D8B", "fontStyle": "italic" },
+                                { "token": "keyword.operator.typedef.annotation", "foreground": "#7B68EE", "fontStyle": "italic" },
+                                { "token": "keyword.control.export", "foreground": "#800080", "fontStyle": "bold" },
+                                { "token": "operator", "foreground": "#6A5ACD" },
+                                { "token": "operator.type", "foreground": "#4B0082" },
+                                { "token": "operator.special", "foreground": "#8A2BE2", "fontStyle": "bold" },
+                                { "token": "entity.name.type.alias", "foreground": "#4169E1", "fontStyle": "italic" },
+                                { "token": "entity.name.function", "foreground": "#0000FF", "fontStyle": "bold" },
+                                { "token": "global", "foreground": "#483D8B", "fontStyle": "bold italic" },
+                                { "token": "storage.type", "foreground": "#00008B", "fontStyle": "italic" },
+                                { "token": "comment", "foreground": "#4682B4", "fontStyle": "italic" },
+                                { "token": "comment.highlight.title", "foreground": "#483D8B", "fontStyle": "italic" },
+                                { "token": "comment.highlight.name", "foreground": "#6A5ACD", "fontStyle": "italic" },
+                                { "token": "comment.delimiter.modifier", "foreground": "#7B68EE", "fontStyle": "italic" },
+                                { "token": "comment.highlight.modifier", "foreground": "#00008B", "fontStyle": "italic" },
+                                { "token": "comment.highlight.descriptor", "foreground": "#0000FF", "fontStyle": "italic" },
+                                { "token": "delimiter.longstring", "foreground": "#4B0082", "fontStyle": "italic" },
+                                { "token": "delimiter.bracket", "foreground": "#0000CD" },
+                                { "token": "delimiter.array", "foreground": "#800080", "fontStyle": "italic" },
+                                { "token": "delimiter.parenthesis", "foreground": "#00008B" },
+                                { "token": "delimiter", "foreground": "#6A5ACD" },
+                                { "token": "string", "foreground": "#0000FF", "fontStyle": "bold" },
+                                { "token": "longstring", "foreground": "#7B68EE", "fontStyle": "italic" },
+                                { "token": "string.delimeter", "foreground": "#800080" },
+                                { "token": "string.escape", "foreground": "#483D8B", "fontStyle": "italic" },
+                                { "token": "punctuation.separator.arguments", "foreground": "#0000CD" },
+                                { "token": "punctuation.separator.parameter", "foreground": "#4169E1", "fontStyle": "italic" },
+                                { "token": "punctuation.separator.table", "foreground": "#4B0082", "fontStyle": "italic" },
+                                { "token": "punctuation.definition.block", "foreground": "#00008B", "fontStyle": "italic" },
+                                { "token": "punctuation.definition.parameters", "foreground": "#800080" },
+                                { "token": "punctuation.definition.typeparameters", "foreground": "#6A5ACD" },
+                                { "token": "constant.language", "foreground": "#7B68EE" },
+                                { "token": "number", "foreground": "#0000FF", "fontStyle": "bold" },
+                                { "token": "constants", "foreground": "#4169E1", "fontStyle": "italic" },
+                                { "token": "support.function", "foreground": "#800080" },
+                                { "token": "support.function.library", "foreground": "#0000FF" },
+                                { "token": "support.type", "foreground": "#6A5ACD", "fontStyle": "italic" },
+                                { "token": "identifier", "foreground": "#00008B" },
+                                { "token": "variable.other", "foreground": "#191970" },
+                                { "token": "keyword.control", "foreground": "#483D8B" },
+                                { "token": "type", "foreground": "#4B0082", "fontStyle": "italic" },
+                                { "token": "function", "foreground": "#000080", "fontStyle": "bold" },
+                                { "token": "type.annotation", "foreground": "#7B68EE", "fontStyle": "italic" },
+                                { "token": "typedef.annotation", "foreground": "#0000FF", "fontStyle": "italic" },
+                                { "token": "control", "foreground": "#4169E1", "fontStyle": "italic" },
+                                { "token": "export", "foreground": "#800080", "fontStyle": "bold" },
+                                { "token": "string", "foreground": "#FF0000" },
+                                { "token": "number", "foreground": "#FF0000" },
+                                { "token": "comment", "foreground": "#FF0000" },
+                                { "token": "keyword", "foreground": "#FF0000" },
+                                { "token": "operator", "foreground": "#FF0000" },
+                                { "token": "delimiter", "foreground": "#FF0000" },
+                                { "token": "punctuation", "foreground": "#FF0000" },
+                                { "token": "variable", "foreground": "#FF0000" },
+                                { "token": "function", "foreground": "#FF0000" },
+                                { "token": "type", "foreground": "#FF0000" },
+                                { "token": "class", "foreground": "#FF0000" },
+                                { "token": "interface", "foreground": "#FF0000" },
+                                { "token": "enum", "foreground": "#FF0000" },
+                                { "token": "typeParameter", "foreground": "#FF0000" },
+                                { "token": "module", "foreground": "#FF0000" },
+                                { "token": "string.escape", "foreground": "#FF0000" },
+                                { "token": "string.regexp", "foreground": "#FF0000" },
+                                { "token": "string.regexp.escape", "foreground": "#FF0000" },
+                                { "token": "string.regexp.character-class", "foreground": "#FF0000" },
+                                { "token": "string.regexp.group", "foreground": "#FF0000" },
+                                { "token": "string.regexp.quantifier", "foreground": "#FF0000" },
+                                { "token": "string.regexp.alternation", "foreground": "#FF0000" },
+                                { "token": "string.regexp.assertion", "foreground": "#FF0000" },
+                            ]
+                        ]
+                    ]
+                ],
+                colors: {
+                    'editor.background': '#0c0c0c',
+                    'editor.foreground': '#FFFFFF',
+                    'minimap.background': '#0c0c0c'
+
+                }
+            });
+
+            var Proposals = [];
+
+            const editor = monaco.editor.create(container, {
+                value: ``,
+                language: 'lua',
+                theme: 'CustomDark',
+                fontFamily: 'Poppins',
+                fontStyle: 'italic',
+                scrollbar: {
+                    horizontal: 'hidden',
+                    vertical: 'hidden'
+                },
+                folding: true,
+                dragAndDrop: true,
+                links: true,
+                showFoldingControls: "always",
+                smoothScrolling: true,
+                stopRenderingLineAfter: 6500,
+                fontSize: 13,
+                cursorBlinking: "smooth",
+                cursorSmoothCaretAnimation: true,
+                foldingHighlight: true,
+                fontLigatures: true,
+                formatOnPaste: true,
+                showDeprecated: true,
+                suggest: {
+                    snippetsPreventQuickSuggestions: false,
+                },
+            });
+
+            editor.getModel().updateOptions({ insertSpaces: true });
+
+            window.onresize = function () {
+                editor.layout();
+            };
+
+            window.GetText = function () {
+                if (activeTabId !== null && editors[activeTabId]) {
+                    return editors[activeTabId].getValue();
+                }
+                return '';
+            };
+
+            window.SetText = function (x) {
+                if (activeTabId !== null && editors[activeTabId]) {
+                    editors[activeTabId].setValue(x);
+                }
+            };
+
+            window.Cut = function () {
+                if (activeTabId !== null && editors[activeTabId]) {
+                    editors[activeTabId].focus();
+                    document.execCommand('cut');
+                }
+            };
+
+            window.Copy = function () {
+                if (activeTabId !== null && editors[activeTabId]) {
+                    editors[activeTabId].focus();
+                    document.execCommand('copy');
+                }
+            };
+
+            window.Paste = function () {
+                if (activeTabId !== null && editors[activeTabId]) {
+                    editors[activeTabId].focus();
+                    document.execCommand('paste');
+                }
+            };
+
+            window.Undo = function () {
+                if (activeTabId !== null && editors[activeTabId]) {
+                    editors[activeTabId].focus();
+                    document.execCommand('undo');
+                }
+            };
+
+            window.Redo = function () {
+                if (activeTabId !== null && editors[activeTabId]) {
+                    editors[activeTabId].focus();
+                    document.execCommand('redo');
+                }
+            };
+
+            window.Delete = function () {
+                if (activeTabId !== null && editors[activeTabId]) {
+                    editors[activeTabId].focus();
+                    document.execCommand('delete');
+                }
+            };
+
+            window.SelectAll = function () {
+                if (activeTabId !== null && editors[activeTabId]) {
+                    editors[activeTabId].focus();
+                    document.execCommand('selectAll');
+                }
+            };
+
+            GetProposals = function () {
+                return Proposals;
+            };
+
+            OnDidChangeContent = function (callback) {
+                return editor.onDidChangeModelContent((event) => {
+                    callback(editor.getValue());
+                });
+            };
+
+            OnDidChangeCursorPosition = function (callback) {
+                return editor.onDidChangeCursorPosition((event) => {
+                    callback(event.position);
+                });
+            };
+
+            SetTheme = function (themeName) {
+                if (themeName == 'CustomDark') {
+                    monaco.editor.setTheme('CustomDark')
+                }
+            };
+
+            SwitchMinimap = function (flag) {
+                editor.updateOptions({
+                    minimap: {
+                        enabled: flag,
+                    }
+                });
+            };
+
+            SwitchReadonly = function (flag) {
+                editor.updateOptions({
+                    readOnly: flag,
+                });
+            };
+
+            SwitchRenderWhitespace = function (op) {
+                editor.updateOptions({
+                    renderWhitespace: op,
+                });
+            };
+
+            SwitchLinks = function (flag) {
+                editor.updateOptions({
+                    links: flag,
+                });
+            };
+
+            SwitchLineHeight = function (num) {
+                editor.updateOptions({
+                    lineHeight: num,
+                });
+            };
+
+            SwitchFontSize = function (num) {
+                editor.updateOptions({
+                    fontSize: num,
+                });
+            };
+
+            SwitchFolding = function (flag) {
+                editor.updateOptions({
+                    folding: flag,
+                });
+            };
+
+            SwitchAutoIndent = function (flag) {
+                editor.updateOptions({
+                    autoIndent: flag,
+                });
+            };
+
+            SwitchFontFamily = function (name) {
+                editor.updateOptions({
+                    fontFamily: name,
+                });
+            };
+
+            SwitchFontLigatures = function (flag) {
+                editor.updateOptions({
+                    fontLigatures: flag,
+                });
+            };
+
+            ShowError = function (line, column, endline, endcolumn, errMessage) {
+                editor.revealPositionInCenter({ lineNumber: line, column: column });
+                editor.deltaDecorations([], [
+                    {
+                        range: new monaco.Range(line, column, endline, endcolumn),
+                        options: {
+                            inlineClassName: 'squiggly-error',
+                            hoverMessage: {
+                                value: errMessage,
+                            }
+                        },
+                    },
+                ]);
+            };
+
+            AddSnippet = function (kindName, snippetName, data) {
+                let snippet = {
+                    insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                    kind: monaco.languages.CompletionItemKind[kindName],
+                };
+                for (const key in data) {
+                    let value = data[key];
+                    if (key == "insertText" && typeof value == "object") {
+                        value = value.join("\n");
+                    };
+                    snippet[key] = value;
+                }
+                if (!snippet.label) {
+                    snippet.label = snippetName
+                }
+                if (!snippet.insertText) {
+                    snippet.insertText = snippetName
+                }
+                Proposals.push(snippet);
+            };
+
+            AddRawSnippet = function (data) {
+                Proposals.push(data);
+            };
+
+            SetScroll = function (line) {
+                editor.revealLineInCenter(line);
+            };
+
+            Refresh = function () {
+                var Text = GetText();
+                SetText(Text);
+                editor.trigger('keyboard', 'type', { text: Text });
+            };
+
+            AddIntellisense = function (l, k, d, i) {
+                console.log(l);
+                console.log(k);
+                console.log(d);
+                console.log(i);
+                var t;
+                switch (k) {
+                    case "Class": t = monaco.languages.CompletionItemKind.Class; break;
+                    case "Color": t = monaco.languages.CompletionItemKind.Color; break;
+                    case "Constructor": t = monaco.languages.CompletionItemKind.Constructor; break;
+                    case "Enum": t = monaco.languages.CompletionItemKind.Enum; break;
+                    case "Field": t = monaco.languages.CompletionItemKind.Field; break;
+                    case "File": t = monaco.languages.CompletionItemKind.File; break;
+                    case "Folder": t = monaco.languages.CompletionItemKind.Folder; break;
+                    case "Function": t = monaco.languages.CompletionItemKind.Function; break;
+                    case "Interface": t = monaco.languages.CompletionItemKind.Interface; break;
+                    case "Keyword": t = monaco.languages.CompletionItemKind.Keyword; break;
+                    case "Method": t = monaco.languages.CompletionItemKind.Method; break;
+                    case "Module": t = monaco.languages.CompletionItemKind.Module; break;
+                    case "Property": t = monaco.languages.CompletionItemKind.Property; break;
+                    case "Reference": t = monaco.languages.CompletionItemKind.Reference; break;
+                    case "Snippet": t = monaco.languages.CompletionItemKind.Snippet; break;
+                    case "Text": t = monaco.languages.CompletionItemKind.Text; break;
+                    case "Unit": t = monaco.languages.CompletionItemKind.Unit; break;
+                    case "Value": t = monaco.languages.CompletionItemKind.Value; break;
+                    case "Variable": t = monaco.languages.CompletionItemKind.Variable; break;
+                }
+
+                Proposals.push({
+                    label: l,
+                    kind: t,
+                    detail: d,
+                    insertText: i
+                });
+                console.log(Proposals);
+            };
+
+            editors[id] = editor;
+
+            if (activeTabId === null) {
+                switchTab(id);
+            }
+        }
+
+        function removeTab(id) {
+            const tabList = document.getElementById('tab-list');
+            const currentTab = document.querySelector(`[data-tab-id="${id}"]`);
+
+            if (!currentTab) return;
+
+            if (tabList.children.length <= 1) {
+                return;
+            }
+
+            currentTab.classList.add('removing');
+
+            currentTab.addEventListener('animationend', () => {
+                if (editors[id]) {
+                    editors[id].dispose();
+                    delete editors[id];
+                }
+                document.getElementById(`editor${id}`).remove();
+                currentTab.remove();
+
+
+                if (activeTabId === id) {
+                    activeTabId = null;
+
+                    const firstTab = tabList.querySelector('.tab-item');
+                    if (firstTab) {
+                        switchTab(parseInt(firstTab.dataset.tabId));
+                    }
+                }
+            });
+        }
+
+        function switchTab(id) {
+            if (!editorsInitialized) return;
+
+            const tabs = document.querySelectorAll('.tab-item');
+            const containers = document.querySelectorAll('.editor-container');
+
+            tabs.forEach(tab => {
+                tab.classList.toggle('active', parseInt(tab.dataset.tabId) === id);
+            });
+
+            containers.forEach(container => {
+                container.classList.toggle('active', container.id === `editor${id}`);
+            });
+
+            activeTabId = id;
+
+            if (editors[id]) {
+                editors[id].layout();
+            }
+        }
+
+        function getCurrentTabText() {
+            if (activeTabId !== null) {
+                return editors[activeTabId]?.getValue() || '';
+            }
+            return '';
+        }
+
+        window.addEventListener('beforeunload', (e) => {
+            saveTabs();
+        });
+
+        setInterval(saveTabs, 30000);
+        Refresh = function () {
+            var text = GetText();
+            SetText("");
+            editor.trigger('keyboard', 'type', {
+                text: text
+            });
+        }
+    </script>
+</body>
+</html>
